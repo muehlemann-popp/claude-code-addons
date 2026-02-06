@@ -13,12 +13,41 @@ Use Serena MCP for semantic codebase understanding:
    Call: mcp__serena__activate_project
    ```
 
-2. **Check if onboarding was already performed**
+2. **Detect monorepo structure**
+   Check if the project root contains multiple independent apps (e.g., separate frontend and backend directories):
+   ```bash
+   # List top-level directories and check for project markers
+   for dir in */; do
+     [ -d "$dir" ] || continue
+     markers=""
+     [ -f "${dir}package.json" ] && markers="${markers}node "
+     [ -f "${dir}requirements.txt" ] && markers="${markers}python "
+     [ -f "${dir}pyproject.toml" ] && markers="${markers}python "
+     [ -f "${dir}go.mod" ] && markers="${markers}go "
+     [ -f "${dir}Cargo.toml" ] && markers="${markers}rust "
+     [ -f "${dir}pom.xml" ] && markers="${markers}java "
+     [ -f "${dir}build.gradle" ] && markers="${markers}java "
+     [ -f "${dir}Gemfile" ] && markers="${markers}ruby "
+     [ -f "${dir}composer.json" ] && markers="${markers}php "
+     ls ${dir}*.csproj >/dev/null 2>&1 && markers="${markers}dotnet "
+     ls ${dir}*.sln >/dev/null 2>&1 && markers="${markers}dotnet "
+     [ -n "$markers" ] && echo "APP: ${dir%/} | stack: $markers"
+   done
+   ```
+
+   **Decision logic:**
+   - If **2 or more** directories each have their own project marker → this is a **monorepo with separate apps**
+   - Record the list of detected apps with their directory names and tech stacks
+   - Set `IS_MONOREPO=true` and `APP_DIRS="app1 app2 ..."` for use in subsequent steps
+   - If only 1 or 0 directories have markers → treat as a **single project** (existing behavior, `IS_MONOREPO=false`)
+   - **Note:** Ignore directories like `node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `infra/`, `terraform/`, `docs/`, `.github/` — these are not separate apps
+
+3. **Check if onboarding was already performed**
    ```
    Call: mcp__serena__check_onboarding_performed
    ```
 
-3. **If not onboarded, run onboarding**
+4. **If not onboarded, run onboarding**
    ```
    Call: mcp__serena__onboarding
    ```
@@ -28,27 +57,52 @@ Use Serena MCP for semantic codebase understanding:
    - Map essential tasks (build, test, deploy)
    - Store knowledge in `.serena/memories/`
 
-4. **Get symbols overview for architecture understanding**
+5. **Get symbols overview for architecture understanding**
    ```
    Call: mcp__serena__get_symbols_overview
    ```
 
-5. **Read any existing Serena memories**
+6. **Read any existing Serena memories**
    ```
    Call: mcp__serena__read_memory (for each relevant memory file)
    ```
 
-6. **Run `cloc .`** for lines-of-code statistics (Serena doesn't provide this). Install if not present:
+7. **Run `cloc`** for lines-of-code statistics (Serena doesn't provide this). Install if not present:
    ```bash
    # Install cloc if missing
    which cloc >/dev/null 2>&1 || brew install cloc 2>/dev/null || npm install -g cloc 2>/dev/null || pip install cloc 2>/dev/null || sudo apt-get install -y cloc 2>/dev/null
+   ```
+
+   **If monorepo (`IS_MONOREPO=true`):** Run cloc separately for each app directory:
+   ```bash
+   # Run per app
+   for app_dir in $APP_DIRS; do
+     echo "=== LOC: $app_dir ==="
+     cloc "$app_dir" --exclude-dir=node_modules,.venv,venv,vendor,dist,build,.git,.history
+   done
+   ```
+
+   **If single project (`IS_MONOREPO=false`):**
+   ```bash
    cloc . --exclude-dir=node_modules,.venv,venv,vendor,dist,build,.git,.history
    ```
 
-7. **Run code duplication analysis.** Install the tool if not present, then run:
+8. **Run code duplication analysis.** Install the tool if not present, then run:
    ```bash
    # jscpd works for all languages (JS, TS, Python, Java, Go, Ruby, etc.)
    npm install -g jscpd 2>/dev/null
+   ```
+
+   **If monorepo:** Run jscpd separately for each app:
+   ```bash
+   for app_dir in $APP_DIRS; do
+     echo "=== Duplication: $app_dir ==="
+     jscpd --reporters json --gitignore --ignore ".history/**" "$app_dir"
+   done
+   ```
+
+   **If single project:**
+   ```bash
    jscpd --reporters json --gitignore --ignore ".history/**" .
    ```
    The `--gitignore` flag excludes node_modules/, dist/, build/, venv/ etc. The explicit `--ignore` catches .history/ in case it's not in .gitignore.
@@ -60,7 +114,7 @@ Use Serena MCP for semantic codebase understanding:
 
    Record the **duplication percentage** (industry benchmark: ≤5% is good, >10% is concerning)
 
-8. **Run static analysis for cyclomatic complexity.**
+9. **Run static analysis for cyclomatic complexity.**
 
    **IMPORTANT: Always install the tool first if not present. These are lightweight analysis tools safe to install temporarily.**
    **IMPORTANT: Always exclude non-project files.** Use .gitignore-aware flags or explicit exclude patterns to avoid scanning `node_modules/`, `venv/`, `.venv/`, `vendor/`, `dist/`, `build/`, `__pycache__/`, `.git/`, and other generated/dependency directories.
@@ -125,7 +179,9 @@ Use Serena MCP for semantic codebase understanding:
 
    **If installation fails** (e.g. no pip/npm/go available, network issues, or permissions), note `CC_TOOL=heuristic` in the context file so agents fall back to heuristic analysis.
 
-9. **Run dead code detection.** Install and run, excluding non-project files:
+   **Monorepo note:** If `IS_MONOREPO=true`, run the complexity tool separately per app directory (replace `.` with `$app_dir` in the commands above). Each app may use a different language/tool. Record results per app.
+
+10. **Run dead code detection.** Install and run, excluding non-project files:
 
    **Python:**
    ```bash
@@ -156,7 +212,9 @@ Use Serena MCP for semantic codebase understanding:
 
    If installation fails, note `DEAD_CODE_TOOL=unavailable` in the context file.
 
-10. **Measure type coverage**, excluding non-project files:
+   **Monorepo note:** If `IS_MONOREPO=true`, run dead code detection per app directory. Record results per app.
+
+11. **Measure type coverage**, excluding non-project files:
 
     **Python (if mypy is in the project's dependencies):**
     ```bash
@@ -178,15 +236,51 @@ Use Serena MCP for semantic codebase understanding:
     echo "Total Python files:" && find . -name '*.py' -not -path '*/venv/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*' -not -path '*/site-packages/*' -not -path '*/.history/*' | wc -l
     ```
 
-11. **Create the shared context file** at `.claude-review-context.md` combining:
+    **Monorepo note:** If `IS_MONOREPO=true`, run type coverage per app directory (replace `.` with `$app_dir`). Record results per app.
+
+12. **Create the shared context file** at `.claude-review-context.md` combining:
    - Serena's onboarding insights and memories
    - LOC statistics from cloc
-   - **Code duplication percentage** (from step 7)
-   - **Cyclomatic complexity summary** (from step 8) — average CC, worst offenders, tool used
-   - **Dead code candidates** (from step 9) — summary count and top items
-   - **Type coverage stats** (from step 10)
+   - **Code duplication percentage** (from step 8)
+   - **Cyclomatic complexity summary** (from step 9) — average CC, worst offenders, tool used
+   - **Dead code candidates** (from step 10) — summary count and top items
+   - **Type coverage stats** (from step 11)
    - Symbols overview
    - Project root path
+
+   **If monorepo (`IS_MONOREPO=true`)**, structure the context file with per-app sections:
+   ```markdown
+   ## Monorepo: YES
+   ## Detected Apps
+   - `app-backend/` — Python/Django
+   - `app-frontend/` — TypeScript/React
+
+   ## Metrics: app-backend
+   ### LOC
+   [cloc output for app-backend]
+   ### Code Duplication
+   [jscpd output for app-backend — X.X%]
+   ### Cyclomatic Complexity
+   [radon output for app-backend — avg CC, worst offenders]
+   ### Dead Code
+   [vulture output for app-backend]
+   ### Type Coverage
+   [mypy/file count for app-backend]
+
+   ## Metrics: app-frontend
+   ### LOC
+   [cloc output for app-frontend]
+   ### Code Duplication
+   [jscpd output for app-frontend — X.X%]
+   ### Cyclomatic Complexity
+   [eslint/cr output for app-frontend — avg CC, worst offenders]
+   ### Dead Code
+   [knip/ts-prune output for app-frontend]
+   ### Type Coverage
+   [TS/JS file ratio for app-frontend]
+   ```
+
+   **If single project (`IS_MONOREPO=false`)**, use the existing flat format (all metrics at top level).
 
 ### Phase 2: Parallel Sub-Agent Analysis
 
@@ -211,6 +305,14 @@ You are a specialized code quality analyst. Perform a focused review of code qua
 
 ## Input
 Read the shared context from `.claude-review-context.md` to understand the codebase structure.
+
+## Monorepo Handling
+Check `.claude-review-context.md` for `## Monorepo: YES`. If present, this is a monorepo with multiple independent apps listed under `## Detected Apps`. You MUST:
+- Analyze and rate EACH app **separately**
+- Structure your output with per-app sections (e.g., `### App: app-backend`, `### App: app-frontend`)
+- Add a `### Cross-App Concerns` section at the end noting inconsistencies between apps (different linting configs, different testing approaches, etc.)
+- Use the per-app metrics from the context file (each app has its own LOC, duplication, complexity data)
+If `## Monorepo: YES` is NOT present, ignore this section and analyze as a single project.
 
 ## Serena Tools (Use These!)
 
@@ -466,6 +568,13 @@ You are a specialized security analyst. Perform a focused security assessment of
 ## Input
 Read the shared context from `.claude-review-context.md` to understand the codebase structure.
 
+## Monorepo Handling
+Check `.claude-review-context.md` for `## Monorepo: YES`. If present, this is a monorepo with multiple independent apps. You MUST:
+- Analyze and rate EACH app's security **separately**
+- Structure your output with per-app sections (e.g., `### App: app-backend`, `### App: app-frontend`)
+- Add a `### Cross-App Security Concerns` section noting: shared secrets, API contract security, inconsistent auth approaches between apps, CORS configuration between frontend and backend
+If `## Monorepo: YES` is NOT present, ignore this section and analyze as a single project.
+
 ## Serena Tools (Use These!)
 
 Leverage Serena MCP for semantic code searching:
@@ -619,6 +728,14 @@ You are a specialized software architect. Perform a focused architecture analysi
 
 ## Input
 Read the shared context from `.claude-review-context.md` to understand the codebase structure.
+
+## Monorepo Handling
+Check `.claude-review-context.md` for `## Monorepo: YES`. If present, this is a monorepo with multiple independent apps. You MUST:
+- Analyze EACH app's architecture **separately** (each may use a different pattern, framework, and language)
+- Structure your output with per-app sections (e.g., `### App: app-backend`, `### App: app-frontend`)
+- Add a `### Cross-App Architecture` section analyzing: how the apps communicate (REST, GraphQL, shared DB?), API contract management (OpenAPI specs, shared types?), deployment coupling, shared code/libraries between apps, consistency of architectural patterns
+- Create an overall system architecture diagram showing how the apps relate to each other
+If `## Monorepo: YES` is NOT present, ignore this section and analyze as a single project.
 
 ## Serena Tools (Use These!)
 
@@ -875,6 +992,13 @@ You are a specialized dependency analyst. Perform a focused review of project de
 ## Input
 Read the shared context from `.claude-review-context.md` to understand the codebase structure.
 
+## Monorepo Handling
+Check `.claude-review-context.md` for `## Monorepo: YES`. If present, this is a monorepo with multiple independent apps. You MUST:
+- Analyze EACH app's dependencies **separately** (each has its own manifest files)
+- Structure your output with per-app sections (e.g., `### App: app-backend`, `### App: app-frontend`)
+- Add a `### Cross-App Dependency Concerns` section noting: shared dependencies at different versions, inconsistent dependency management practices, shared lock file vs separate lock files
+If `## Monorepo: YES` is NOT present, ignore this section and analyze as a single project.
+
 ## Tasks
 
 ### 1. Dependency Inventory
@@ -1033,6 +1157,13 @@ You are a specialized DevOps engineer. Perform a focused review of CI/CD, infras
 
 ## Input
 Read the shared context from `.claude-review-context.md` to understand the codebase structure.
+
+## Monorepo Handling
+Check `.claude-review-context.md` for `## Monorepo: YES`. If present, this is a monorepo with multiple independent apps. You MUST:
+- Analyze EACH app's DevOps setup **separately** (each may have its own Dockerfile, deployment config, etc.)
+- Structure your output with per-app sections (e.g., `### App: app-backend`, `### App: app-frontend`)
+- Add a `### Cross-App DevOps Concerns` section noting: shared vs separate CI/CD pipelines, deployment orchestration between apps, shared infrastructure (databases, message queues), environment configuration consistency
+If `## Monorepo: YES` is NOT present, ignore this section and analyze as a single project.
 
 ## Tasks
 
@@ -1262,6 +1393,13 @@ You are a specialized software maintainability analyst. Perform a focused review
 
 ## Input
 Read the shared context from `.claude-review-context.md` to understand the codebase structure.
+
+## Monorepo Handling
+Check `.claude-review-context.md` for `## Monorepo: YES`. If present, this is a monorepo with multiple independent apps. You MUST:
+- Analyze EACH app's maintainability **separately**
+- Structure your output with per-app sections (e.g., `### App: app-backend`, `### App: app-frontend`)
+- Add a `### Cross-App Maintainability Concerns` section noting: inconsistent code patterns between apps, shared vs divergent coding standards, cross-app refactoring opportunities, bus factor per app
+If `## Monorepo: YES` is NOT present, ignore this section and analyze as a single project.
 
 ## Serena Tools (Use These!)
 
@@ -1568,6 +1706,19 @@ After all sub-agents complete:
 
 **Recommended Action:** [Proceed / Proceed with caution / Significant remediation needed / Do not proceed]
 
+#### Per-App Ratings (Monorepo Only)
+
+> **Include this section ONLY if the project was detected as a monorepo (IS_MONOREPO=true).** Skip it entirely for single-project reviews.
+
+| App | Rating | LOC | Duplication | Avg CC | Key Concern |
+|-----|--------|-----|-------------|--------|-------------|
+| `app-backend` | ★★★★☆ (4/5) | 12,000 | 3.2% | 4.1 | Missing integration tests |
+| `app-frontend` | ★★☆☆☆ (2/5) | 8,000 | 14.1% | 8.3 | High duplication, weak type safety |
+
+**Overall Rating** above is the **weighted average** (by LOC) of the per-app ratings.
+
+Each app's rating considers its own metrics independently — a strong backend does not compensate for a weak frontend and vice versa.
+
 ---
 
 ### Rating Scale Reference
@@ -1587,6 +1738,7 @@ After all sub-agents complete:
 - Codebase size (from cloc: total files, lines of code by language)
 - Technology stack overview (from Serena)
 - Overall health rating (1-5 stars) - use rating scale above
+- **If monorepo:** Per-app ratings (from Per-App Ratings table in Management Summary)
 - Top 3-5 risks/concerns (synthesized from all sub-agents)
 - Top 3-5 strengths
 
@@ -1646,20 +1798,42 @@ After all sub-agents complete:
 - Technical debt indicators
 - Bus factor concerns
 
-### 9. Risk Register
+### 9. Cross-App Analysis (Monorepo Only)
+
+> **Include this section ONLY if the project was detected as a monorepo (IS_MONOREPO=true).** Skip it entirely for single-project reviews.
+
+Synthesize cross-app findings from all 6 sub-agents into one consolidated section:
+
+- **Inter-App Communication**: How do the apps communicate? REST APIs, shared database, message queues? Is there an API contract (OpenAPI spec, shared types)?
+- **Shared Code**: Is there any shared code between apps? Shared libraries, common types, utility packages?
+- **Consistency**: Do the apps follow similar coding standards, testing practices, dependency management? Where do they diverge?
+- **Deployment Coupling**: Are the apps deployed independently or together? Can one be updated without the other?
+- **Version Management**: Are the apps versioned independently? Is there a coordinated release process?
+- **Per-App Summary Table**:
+
+| Aspect | App 1 | App 2 | Consistency |
+|--------|-------|-------|-------------|
+| Language | Python 3.11 | TypeScript 5.x | N/A |
+| Framework | Django 4.2 | React 18 | N/A |
+| Test Coverage | ~80% | ~30% | ✗ Inconsistent |
+| Linting | pylint ✅ | ESLint ❌ | ✗ Inconsistent |
+| CI/CD | ✅ GitHub Actions | ✅ GitHub Actions | ✓ Consistent |
+| Docker | ✅ Multi-stage | ⚠️ Single-stage | ⚠️ Partially |
+
+### 10. Risk Register
 
 | Risk | Impact | Likelihood | Mitigation Recommendation |
 |------|--------|------------|---------------------------|
 | ...  | H/M/L  | H/M/L      | ...                       |
 
-### 10. Recommendations
+### 11. Recommendations
 Prioritized list:
 1. **Critical** (address immediately)
 2. **High** (address within 1-3 months)
 3. **Medium** (address within 6 months)
 4. **Low** (nice to have)
 
-### 11. Appendix
+### 12. Appendix
 - File/folder inventory summary
 - Key configuration files reviewed
 - Serena memories location: `.serena/memories/`
