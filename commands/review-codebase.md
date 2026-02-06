@@ -38,7 +38,12 @@ Use Serena MCP for semantic codebase understanding:
    Call: mcp__serena__read_memory (for each relevant memory file)
    ```
 
-6. **Run `cloc .`** for lines-of-code statistics (Serena doesn't provide this)
+6. **Run `cloc .`** for lines-of-code statistics (Serena doesn't provide this). Install if not present:
+   ```bash
+   # Install cloc if missing
+   which cloc >/dev/null 2>&1 || brew install cloc 2>/dev/null || npm install -g cloc 2>/dev/null || pip install cloc 2>/dev/null || sudo apt-get install -y cloc 2>/dev/null
+   cloc . --exclude-dir=node_modules,.venv,venv,vendor,dist,build,.git,.history
+   ```
 
 7. **Run code duplication analysis.** Install the tool if not present, then run:
    ```bash
