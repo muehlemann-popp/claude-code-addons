@@ -99,6 +99,25 @@ Use Serena MCP for semantic codebase understanding:
    pmd check -d src -R category/java/design.xml/CyclomaticComplexity -f json 2>/dev/null
    ```
 
+   **C# (.NET):**
+   ```bash
+   # Use JetBrains command-line tools (works without full IDE)
+   dotnet tool install -g JetBrains.ReSharper.GlobalTools 2>/dev/null
+   jb inspectcode *.sln --output=/tmp/resharper-report.xml --severity=WARNING 2>/dev/null
+   # Parse the XML for complexity warnings
+
+   # Alternative: dotnet-counters or built-in Roslyn analyzers
+   # If a .sln or .csproj exists, check if analyzers are already configured:
+   grep -r 'CA1502' . --include='*.editorconfig' --include='*.ruleset' 2>/dev/null
+   # CA1502 = "Avoid excessive complexity" (Roslyn built-in)
+
+   # Lightweight fallback if dotnet tools unavailable:
+   # Count methods with high branch density
+   find . -name '*.cs' -not -path '*/bin/*' -not -path '*/obj/*' -not -path '*/.history/*' | \
+     xargs grep -c 'if \|else \|switch \|case \|while \|for \|foreach \|catch ' 2>/dev/null | \
+     sort -t: -k2 -rn | head -20
+   ```
+
    **If installation fails** (e.g. no pip/npm/go available, network issues, or permissions), note `CC_TOOL=heuristic` in the context file so agents fall back to heuristic analysis.
 
 9. **Run dead code detection.** Install and run, excluding non-project files:
@@ -115,6 +134,19 @@ Use Serena MCP for semantic codebase understanding:
    ```bash
    # knip uses project tsconfig/package.json — inherently scoped to project files
    npx knip 2>/dev/null || npx ts-prune 2>/dev/null
+   ```
+
+   **C# (.NET):**
+   ```bash
+   # If ReSharper CLI was installed in step 8, reuse its output — it includes dead code findings
+   # (R# inspection IDs: UnusedMember.Global, UnusedMember.Local, UnusedType.Global)
+   grep -E 'UnusedMember|UnusedType|UnusedAutoPropertyAccessor' /tmp/resharper-report.xml 2>/dev/null
+
+   # Alternative: use Roslyn analyzers if configured in the project
+   # IDE0051 = Remove unused private members
+   # IDE0052 = Remove unread private members
+   # CS0168 = Variable declared but never used
+   dotnet build *.sln 2>&1 | grep -E 'IDE005[12]|CS0168|CS0219' 2>/dev/null
    ```
 
    If installation fails, note `DEAD_CODE_TOOL=unavailable` in the context file.
@@ -640,6 +672,8 @@ Common patterns to detect:
 | Express/Fastify | routes/controllers → services → repositories → models | routes must NOT import database clients or ORMs directly |
 | React/Vue/Angular | components → hooks/composables → services → API | components must NOT contain fetch/axios calls, direct API URLs, or complex business logic |
 | Spring | controllers → services → repositories | controllers must NOT have @Repository or EntityManager usage |
+| ASP.NET MVC/API | Controllers → Services → Repositories/DbContext | Controllers must NOT use DbContext/DbSet directly, must NOT contain LINQ queries against DB, must NOT have business logic beyond request/response mapping |
+| Blazor | Components/Pages → Services → Data Access | Components must NOT inject DbContext, must NOT contain business rules |
 | FastAPI | routers → services → repositories | routers must NOT import SQLAlchemy Session or run queries |
 | Clean/Hexagonal | adapters → use cases → entities | entities must NOT import from adapters, use cases must NOT import from infrastructure |
 
@@ -663,6 +697,18 @@ search in components/ for: fetch\(|axios\.|\.get\(.*api|\.post\(.*api
 search in components/ for: query\(|SELECT|INSERT|UPDATE
 # Business logic in view layer
 search in components/ for: \.reduce\(|\.filter\(.*&&.*\.filter\(  (chained complex transforms)
+```
+
+Example searches for an ASP.NET project:
+```
+# Controllers using DbContext directly
+search in Controllers/ for: DbContext|DbSet|\.Include\(|\.Where\(|\.FirstOrDefault\(|\.ToList\(|\.SaveChanges\(
+# Controllers with LINQ query syntax
+search in Controllers/ for: from\s+\w+\s+in\s+|\.Select\(|\.GroupBy\(|\.OrderBy\(
+# Razor views/pages containing business logic
+search in Views/ or Pages/ for: @\{.*if.*\.|@for.*\.Count|\.Where\(|\.Any\(
+# Data access outside repository/data layer
+search in Services/ for: SqlConnection|SqlCommand|ExecuteNonQuery|ExecuteReader
 ```
 
 **Step 3: Classify each violation by severity:**
