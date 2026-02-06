@@ -1,18 +1,26 @@
 # Claude Code Skills
 
-Custom slash commands (skills) for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+A shared collection of custom slash commands (skills) for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), maintained by [m+p](https://github.com/muehlemann-popp).
+
+Use these skills across all your projects to standardize workflows like code reviews, due diligence, and more.
 
 ## Installation
 
-Symlink the commands into your Claude Code config directory:
+Symlink the commands you want into your Claude Code config directory:
 
 ```bash
+# All skills at once
+for f in /path/to/this/repo/commands/*.md; do
+  ln -s "$f" ~/.claude/commands/"$(basename "$f")"
+done
+
+# Or individual skills
 ln -s /path/to/this/repo/commands/review-codebase.md ~/.claude/commands/review-codebase.md
 ```
 
-Then use `/review-codebase` in any Claude Code session.
+Then use them as `/command-name` in any Claude Code session.
 
-## Skills
+## Available Skills
 
 ### `/review-codebase` — Tech Due Diligence Review
 
@@ -47,3 +55,7 @@ A comprehensive, parallelized code review that produces a structured due diligen
 - [Serena MCP server](https://github.com/oramasearch/serena) (for semantic code analysis)
 - Node.js (for jscpd, mermaid-cli, md-to-pdf — installed automatically if npm is available)
 - Language-specific tools are installed automatically as needed (radon, vulture, complexity-report, etc.)
+
+## Contributing
+
+To add a new skill, create a Markdown file in `commands/` and submit a pull request. Each skill should include clear instructions for the agent, expected output format, and any tool requirements.
