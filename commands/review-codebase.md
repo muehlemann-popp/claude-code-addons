@@ -4,6 +4,66 @@ Perform a comprehensive technical due diligence review using Serena for semantic
 
 ## Instructions
 
+### Report Metadata
+
+The final report must include the following in the header:
+
+```
+**Author:** Silvan Mühlemann, mühlemann+popp AG with Claude Code
+```
+
+### Phase 0: Context Gathering
+
+Before starting the review, ask the user about the intended purpose and deployment context of the codebase. Use the AskUserQuestion tool with these two questions:
+
+**Question 1: "What is the intended maturity stage of this codebase?"**
+- **Proof of Concept (PoC) / Prototype** — Exploratory code, not intended for production. Emphasis on architecture and feasibility, not polish.
+- **MVP / Early Product** — First production-ready version. Core functionality matters, some gaps acceptable.
+- **Production / Enterprise** — Actively serving users or business-critical. Full production standards expected.
+- **Legacy / Maintenance** — Established system being evaluated for acquisition, migration, or continued investment.
+
+**Question 2: "What is the deployment and exposure context?"**
+- **Internal only (intranet / VPN)** — Accessible only to trusted employees behind a firewall. Lower security exposure.
+- **Public internet — authenticated users** — Exposed to the internet but requires login. Standard security expected.
+- **Public internet — unauthenticated / open** — Publicly accessible, highest security scrutiny.
+- **Developer tooling / CLI** — Used locally by developers, not deployed as a service.
+
+Store the answers as `MATURITY_STAGE` and `EXPOSURE_CONTEXT` for use throughout the review.
+
+**How these affect the review:**
+
+| Finding | PoC/Prototype | MVP/Early Product | Production/Enterprise |
+|---------|---------------|-------------------|----------------------|
+| No tests | Acceptable | Concern | Critical gap |
+| No CI/CD | Acceptable | Should have | Must have |
+| Hardcoded secrets | Flag but low severity | High severity | Critical |
+| No rate limiting | Acceptable | Medium (if public) | High (if public) |
+| SQLite in production | Fine | Acceptable if low volume | Concern |
+| No Docker/IaC | Fine | Should have | Must have |
+| High cyclomatic complexity | Flag for awareness | Should refactor | Must refactor |
+| No linting/formatting | Acceptable | Should have | Must have |
+| Bus factor = 1 | Normal for PoC | Risk | Critical risk |
+
+Similarly, `EXPOSURE_CONTEXT` modulates security severity:
+- **Internal only**: Authentication gaps are Medium (not Critical), missing rate limiting is Low, CORS misconfiguration is Low
+- **Public + authenticated**: Authentication gaps are High, missing rate limiting is Medium, CORS is Medium
+- **Public + unauthenticated**: Authentication gaps are Critical, missing rate limiting is High, CORS is High
+
+Pass `MATURITY_STAGE` and `EXPOSURE_CONTEXT` to all sub-agents in Phase 2 (include them in the shared context file `.claude-review-context.md`).
+
+The **Management Summary** of the final report must include a **Rating Context** disclaimer section immediately after the rating table:
+
+```markdown
+### Rating Context
+
+> This review evaluates the codebase against **[MATURITY_STAGE]** standards for a **[EXPOSURE_CONTEXT]** deployment.
+>
+> - **What this means:** [1-2 sentences explaining the calibration. E.g., "As a Proof of Concept, the absence of automated tests and CI/CD is noted but not penalized in the rating. The review focuses on architectural soundness and feasibility." or "As a production system exposed to the public internet, all OWASP Top 10 security controls are expected and gaps are rated as critical."]
+> - **If evaluated as Production/Enterprise:** The rating would be [X/5] — [brief note on what would change, e.g., "the missing authentication and zero test coverage would lower the rating to 1.5/5"]
+```
+
+This ensures stakeholders understand that a 3/5 for a PoC means something very different than a 3/5 for an enterprise system.
+
 ### Phase 1: Initial Discovery with Serena
 
 Use Serena MCP for semantic codebase understanding:
@@ -1682,6 +1742,17 @@ After all sub-agents complete:
 
 ## Final Report Template
 
+The report must start with a header block:
+
+```markdown
+# Tech Due Diligence Report: [Project Name]
+
+**Date:** [YYYY-MM-DD]
+**Author:** Silvan Mühlemann, mühlemann+popp AG with Claude Code
+**Scope:** Full codebase review ([list of apps])
+**Repository:** [Repo name or path]
+```
+
 ### Management Summary
 
 > **This section goes at the very top of the report for executive stakeholders.**
@@ -1705,6 +1776,13 @@ After all sub-agents complete:
 **Key Risks:** [Bullet list of 2-3 main concerns with business impact]
 
 **Recommended Action:** [Proceed / Proceed with caution / Significant remediation needed / Do not proceed]
+
+#### Rating Context
+
+> This review evaluates the codebase against **[MATURITY_STAGE]** standards for a **[EXPOSURE_CONTEXT]** deployment.
+>
+> - **What this means:** [1-2 sentences explaining how the rating is calibrated. E.g., "As a Proof of Concept, the absence of automated tests and CI/CD is noted but not penalized in the rating. The review focuses on architectural soundness and feasibility." or "As a production system exposed to the public internet, all OWASP Top 10 security controls are expected and their absence is rated as critical."]
+> - **If evaluated as [higher maturity level]:** The rating would be [X/5] — [brief note on what would change]
 
 #### Per-App Ratings (Monorepo Only)
 
@@ -1845,47 +1923,112 @@ Prioritized list:
 
 After the final report is written to `tech-dd-report.md`:
 
+**Strategy:** Convert Markdown → HTML (via pandoc with custom CSS) → PDF (via Playwright Chromium).
+This produces high-quality PDFs with proper table styling, colored emojis, and rendered diagrams.
+Do NOT use `md-to-pdf` or `wkhtmltopdf` — they rely on Puppeteer/system Chrome which often fails in sandboxed or headless environments, and they render emojis as black-and-white glyphs.
+
 1. **Install required tools** (if not already installed):
    ```bash
    # Mermaid CLI for rendering diagrams
    npm list -g @mermaid-js/mermaid-cli || npm install -g @mermaid-js/mermaid-cli
 
-   # md-to-pdf for PDF conversion
-   npm list -g md-to-pdf || npm install -g md-to-pdf
+   # Playwright for PDF generation (uses its own bundled Chromium — no system Chrome needed)
+   pip3 install --break-system-packages playwright 2>/dev/null
+   # Install system deps for Playwright's Chromium (needs sudo)
+   sudo python3 -m playwright install-deps chromium 2>/dev/null
+   # Download Playwright's bundled Chromium
+   python3 -m playwright install chromium
+
+   # Pandoc for Markdown → HTML conversion
+   which pandoc || sudo apt-get install -y pandoc
    ```
 
-2. **Extract and render Mermaid diagrams**:
-   - Find all mermaid code blocks in `tech-dd-report.md`
-   - For each mermaid block:
+2. **Configure Mermaid CLI to use Playwright's Chromium** (avoids snap/sandbox issues):
+   ```bash
+   # Find Playwright's Chromium binary
+   CHROME_PATH=$(find ~/.cache/ms-playwright -name 'chrome' -path '*/chrome-linux/*' 2>/dev/null | head -1)
+
+   # Create puppeteer config for mmdc
+   cat > /tmp/puppeteer-config.json << EOF
+   {
+     "executablePath": "$CHROME_PATH",
+     "args": ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
+   }
+   EOF
+   ```
+
+3. **Extract and render Mermaid diagrams**:
+   - Use a Python script to find all mermaid code blocks in `tech-dd-report.md` and save each to `/tmp/diagram-N.mmd`
+   - For each mermaid block, render to PNG using mmdc with the Playwright Chromium:
      ```bash
-     # Save mermaid source to temp file
-     echo '<mermaid-source>' > /tmp/diagram-N.mmd
-
-     # Render to PNG
-     mmdc -i /tmp/diagram-N.mmd -o tech-dd-diagram-N.png -b transparent
+     # DISPLAY must be set if running in a VNC/X11 environment
+     mmdc -i /tmp/diagram-N.mmd -o tech-dd-diagram-N.png -b white -p /tmp/puppeteer-config.json
      ```
 
-3. **Replace mermaid blocks with rendered images**:
-   - Replace each ` ```mermaid ... ``` ` block with:
-     ```markdown
-     ![Diagram N](tech-dd-diagram-N.png)
-     ```
+4. **Replace mermaid blocks with rendered images**:
+   - Replace each ` ```mermaid ... ``` ` block with `![Diagram N](tech-dd-diagram-N.png)`
    - Save the modified report to `tech-dd-report-with-images.md`
 
-4. **Convert to PDF**:
+5. **Convert to styled HTML**:
    ```bash
-   md-to-pdf tech-dd-report-with-images.md --pdf-options '{"format": "A4", "margin": "20mm"}'
+   pandoc tech-dd-report-with-images.md -o tech-dd-report.html --standalone \
+     --metadata title="Tech Due Diligence Report"
    ```
 
-5. **Clean up** temporary files:
-   - Remove `/tmp/diagram-*.mmd` files
-   - Keep the PNG files alongside the PDF for reference
-   - The final output is `tech-dd-report-with-images.pdf`
+6. **Inject professional CSS** into the generated HTML `<style>` block:
+   ```css
+   @page { size: A4; margin: 10mm; }
+   body {
+     font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+     font-size: 11px; line-height: 1.5; color: #1a1a1a;
+     max-width: 100%; margin: 0 auto;
+   }
+   h1 { font-size: 22px; color: #1a365d; border-bottom: 2px solid #2c98c8; padding-bottom: 6px; margin-top: 24px; }
+   h2 { font-size: 17px; color: #2c5282; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 20px; }
+   h3 { font-size: 14px; color: #2d3748; margin-top: 16px; }
+   h4 { font-size: 12px; color: #4a5568; }
+   table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10.5px; }
+   th { background-color: #edf2f7; color: #2d3748; font-weight: 600; text-align: left; padding: 6px 8px; border: 1px solid #cbd5e0; }
+   td { padding: 5px 8px; border: 1px solid #e2e8f0; vertical-align: top; }
+   tr:nth-child(even) { background-color: #f7fafc; }
+   code { background-color: #edf2f7; padding: 1px 4px; border-radius: 3px; font-size: 10px; }
+   pre { background-color: #f7fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px; overflow-x: auto; font-size: 10px; }
+   pre code { background: none; padding: 0; }
+   img { max-width: 100%; height: auto; }
+   hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+   blockquote { border-left: 3px solid #2c98c8; margin: 10px 0; padding: 6px 12px; background: #f0f7ff; }
+   a { color: #2c98c8; }
+   ```
+
+7. **Generate PDF using Playwright** (supports color emojis, proper CSS rendering):
+   ```python
+   from playwright.sync_api import sync_playwright
+   import os
+
+   html_path = os.path.abspath('tech-dd-report.html')
+
+   with sync_playwright() as p:
+       browser = p.chromium.launch(headless=True)
+       page = browser.new_page()
+       page.goto(f'file://{html_path}')
+       page.pdf(
+           path='tech-dd-report.pdf',
+           format='A4',
+           margin={'top': '10mm', 'bottom': '10mm', 'left': '10mm', 'right': '10mm'},
+           print_background=True,
+       )
+       browser.close()
+   ```
+
+8. **Clean up** temporary files:
+   - Remove `/tmp/diagram-*.mmd` and `/tmp/puppeteer-config.json`
+   - Keep the PNG diagram files alongside the PDF for reference
+   - The final output is `tech-dd-report.pdf`
 
 ---
 
 ## Output
 
 1. Save the completed report to `tech-dd-report.md` (Markdown with Mermaid source)
-2. Generate `tech-dd-report-with-images.md` (Markdown with rendered diagram images)
-3. Generate `tech-dd-report-with-images.pdf` (Final PDF report)
+2. Generate `tech-dd-report.html` (Styled HTML with rendered diagram images)
+3. Generate `tech-dd-report.pdf` (Final PDF report via Playwright Chromium)
