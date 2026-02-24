@@ -1738,6 +1738,55 @@ After all sub-agents complete:
 
 5. **Output** the final report to `tech-dd-report.md`
 
+### Phase 3.5: Deep Logic & Edge Case Analysis
+
+After Phase 3 aggregation, launch **3 parallel sub-agents** to perform deep code reading for actual bugs, logic errors, race conditions, and missing edge cases. These go beyond the structural DD findings (code quality, security posture, architecture) and look for **runtime correctness issues**.
+
+Each agent focuses on a different area of the codebase:
+
+#### Agent: `review-logic-backend-core`
+```
+Prompt: Read the core business logic files (services, pipelines, background tasks, store/repository layer). For each file, look for:
+- Race conditions (TOCTOU, concurrent access without locks, shared mutable state)
+- Silent failures (broad except/catch blocks swallowing errors, missing error propagation)
+- State machine violations (status transitions that skip required steps)
+- Data integrity issues (lost updates, missing transactions, partial writes)
+- Incorrect algorithms (wrong math, off-by-one, wrong comparison operators)
+- Missing edge cases (empty inputs, None/null, boundary values, Unicode)
+
+Report each finding with: file:line, severity (Critical/High/Medium/Low), description of the bug, and a suggested fix.
+Do NOT report structural issues (missing tests, no CI/CD, code style) — only actual logic/correctness bugs.
+```
+
+#### Agent: `review-logic-integrations`
+```
+Prompt: Read all external integration code (API clients, email/IMAP, ERP export, file I/O, database migrations, authentication). For each file, look for:
+- Protocol violations (IMAP sequence vs UID, HTTP idempotency, API contract mismatches)
+- Resource leaks (unclosed connections, file handles, sessions)
+- Error handling gaps (network failures, timeouts, partial responses, auth token expiry)
+- Data format issues (date parsing without validation, locale-dependent number formatting, encoding)
+- Security in integration points (credential handling, injection in dynamic queries/URLs)
+
+Report each finding with: file:line, severity, description, and suggested fix.
+Do NOT report structural issues — only actual bugs and missing edge cases.
+```
+
+#### Agent: `review-logic-data-mapping`
+```
+Prompt: Read all data transformation, mapping, and serialization code (DTOs, mappers, serializers, schema conversions, import/export formatters). For each file, look for:
+- Field mapping errors (fields silently dropped, wrong field copied, type mismatches)
+- Calculation errors (rounding, percentage math that doesn't sum to 100%, currency precision)
+- Mutable default arguments (Python: default=[], default={})
+- Serialization round-trip issues (data lost or corrupted when converting between formats)
+- ID generation issues (collision probability, truncation, non-unique)
+- Audit/logging gaps (operations that modify data but don't record what changed)
+
+Report each finding with: file:line, severity, description, and suggested fix.
+Do NOT report structural issues — only actual bugs and missing edge cases.
+```
+
+After all 3 agents complete, **compile the findings** into a deduplicated, severity-sorted list and add them as **Appendix B: Logic & Edge Case Flaws** in the report (see template below).
+
 ---
 
 ## Final Report Template
@@ -1911,11 +1960,38 @@ Prioritized list:
 3. **Medium** (address within 6 months)
 4. **Low** (nice to have)
 
-### 12. Appendix
+### 12. Appendix A: Methodology
 - File/folder inventory summary
 - Key configuration files reviewed
 - Serena memories location: `.serena/memories/`
 - Tools and methods used for analysis
+
+### 13. Appendix B: Logic & Edge Case Flaws
+
+Deep code review uncovering actual bugs, logic errors, and missing edge cases beyond the structural findings in the main report.
+
+Group findings by severity. For each finding use this format:
+
+```markdown
+#### B-N. [Short title]
+**File:** `path/to/file.py:line` | **Severity:** [🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Low]
+
+[Description of the bug — what happens, why it's wrong, what the user-visible impact is.]
+
+**Fix:** [1-2 sentence suggested fix.]
+```
+
+End with a summary table:
+
+```markdown
+| Severity | Count | Key Impact |
+|----------|-------|------------|
+| 🔴 Critical | N | [Brief summary] |
+| 🟠 High | N | [Brief summary] |
+| 🟡 Medium | N | [Brief summary] |
+| 🟢 Low | N | [Brief summary] |
+| **Total** | **N** | |
+```
 
 ---
 
