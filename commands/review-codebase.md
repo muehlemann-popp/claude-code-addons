@@ -1975,29 +1975,44 @@ Do NOT use `md-to-pdf` or `wkhtmltopdf` — they rely on Puppeteer/system Chrome
      --metadata title="Tech Due Diligence Report"
    ```
 
-6. **Inject professional CSS** into the generated HTML `<style>` block:
+6. **Inject professional CSS** into the generated HTML `<style>` block.
+
+   Design guidelines:
+   - Font: **Manrope** (Google Fonts) as primary, with Segoe UI / Helvetica Neue fallbacks
+   - Accent color: **mustard** `hsl(41, 75%, 61%)` (#D4A843) and its shades — used for heading borders, table header backgrounds, blockquote borders, links
+   - Use **colored emojis** where appropriate (e.g. ⚠️, ✅, 🔴, 🟡, 🟢) — Playwright renders them natively
+   - Add the **mühlemann+popp corporate logo** in the page header: `https://muehlemann.com/img/muehlemann+popp.svg`
+
    ```css
+   @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap');
    @page { size: A4; margin: 10mm; }
    body {
-     font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+     font-family: 'Manrope', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
      font-size: 11px; line-height: 1.5; color: #1a1a1a;
      max-width: 100%; margin: 0 auto;
    }
-   h1 { font-size: 22px; color: #1a365d; border-bottom: 2px solid #2c98c8; padding-bottom: 6px; margin-top: 24px; }
-   h2 { font-size: 17px; color: #2c5282; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 20px; }
+   h1 { font-size: 22px; color: #1a365d; border-bottom: 2px solid hsl(41, 75%, 61%); padding-bottom: 6px; margin-top: 24px; }
+   h2 { font-size: 17px; color: #2c5282; border-bottom: 1px solid hsl(41, 75%, 75%); padding-bottom: 4px; margin-top: 20px; }
    h3 { font-size: 14px; color: #2d3748; margin-top: 16px; }
    h4 { font-size: 12px; color: #4a5568; }
    table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10.5px; }
-   th { background-color: #edf2f7; color: #2d3748; font-weight: 600; text-align: left; padding: 6px 8px; border: 1px solid #cbd5e0; }
+   th { background-color: hsl(41, 75%, 93%); color: #2d3748; font-weight: 600; text-align: left; padding: 6px 8px; border: 1px solid hsl(41, 75%, 80%); }
    td { padding: 5px 8px; border: 1px solid #e2e8f0; vertical-align: top; }
    tr:nth-child(even) { background-color: #f7fafc; }
-   code { background-color: #edf2f7; padding: 1px 4px; border-radius: 3px; font-size: 10px; }
+   code { background-color: hsl(41, 75%, 95%); padding: 1px 4px; border-radius: 3px; font-size: 10px; }
    pre { background-color: #f7fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px; overflow-x: auto; font-size: 10px; }
    pre code { background: none; padding: 0; }
    img { max-width: 100%; height: auto; }
-   hr { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
-   blockquote { border-left: 3px solid #2c98c8; margin: 10px 0; padding: 6px 12px; background: #f0f7ff; }
-   a { color: #2c98c8; }
+   hr { border: none; border-top: 1px solid hsl(41, 75%, 80%); margin: 20px 0; }
+   blockquote { border-left: 3px solid hsl(41, 75%, 61%); margin: 10px 0; padding: 6px 12px; background: hsl(41, 75%, 96%); }
+   a { color: hsl(41, 75%, 45%); }
+   ```
+
+   Also inject a **logo header** right after `<body>`:
+   ```html
+   <div style="text-align: right; margin-bottom: 12px;">
+     <img src="https://muehlemann.com/img/muehlemann+popp.svg" alt="mühlemann+popp" style="height: 32px;" />
+   </div>
    ```
 
 7. **Generate PDF using Playwright** (supports color emojis, proper CSS rendering):
