@@ -1,3 +1,8 @@
+---
+name: review-codebase
+description: Comprehensive tech due diligence review with parallelized analysis using Serena and sub-agents
+---
+
 # Tech Due Diligence Review (Parallelized)
 
 Perform a comprehensive technical due diligence review using Serena for semantic analysis and parallel sub-agents for faster review.
