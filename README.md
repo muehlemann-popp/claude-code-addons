@@ -21,6 +21,7 @@ After installation, use the skill as a slash command in any Claude Code session 
 | Skill | Description |
 |-------|-------------|
 | `review-codebase` | Comprehensive tech due diligence review with parallelized analysis using Serena and sub-agents |
+| `mp-pdf` | Convert Markdown to professionally styled PDF with mühlemann+popp corporate branding |
 
 ## Contributing
 
