@@ -66,6 +66,25 @@ EOF
 - Replace each ` ```mermaid ... ``` ` block with `![Diagram N]({name}-diagram-N.png)`
 - Save the modified report to `{name}-with-images.md`
 
+### Step 4b: Fix Markdown list formatting
+
+Pandoc requires a blank line before the first bullet (`- `) or numbered (`1.`) list item — otherwise it renders the list as plain text. Before conversion, preprocess the markdown to insert a blank line wherever a non-empty, non-list line is immediately followed by a list item:
+
+```python
+import re
+lines = open('{name}-with-images.md').readlines()
+fixed = []
+for i, line in enumerate(lines):
+    fixed.append(line)
+    if (line.strip()                          # current line is non-empty
+        and not line.strip().startswith(('-', '*', '+'))  # and not already a list item
+        and not re.match(r'^\d+\.', line.strip())
+        and i + 1 < len(lines)
+        and re.match(r'^[ \t]*[-*+] |^[ \t]*\d+\. ', lines[i + 1])):
+        fixed.append('\n')
+open('{name}-with-images.md', 'w').writelines(fixed)
+```
+
 ### Step 5: Convert to styled HTML
 
 ```bash
